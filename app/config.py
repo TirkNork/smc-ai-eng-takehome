@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     pinecone_host: str = "http://localhost:5080"
     pinecone_api_key: str = "pclocal"
     pinecone_index: str = "tenk-filings"
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dim: int = 512
 
 

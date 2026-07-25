@@ -1,0 +1,79 @@
+ISSUE: duplicate vectors in the provided pinecone_vectors.jsonl.gz fixture
+===========================================================================
+
+WHAT WAS FOUND
+--------------
+data/pinecone_vectors.jsonl.gz contains 4072 records, but only 2034 are
+content-unique. Every one of the 4 filings is duplicated at almost exactly
+a 2.00x ratio:
+
+  title            total_records   unique_texts   ratio
+  goog-20251231    1052            526            2.000
+  aapl-20250927    604             302            2.000
+  amzn-20251231    848             424            2.000
+  meta-20251231    1568            782            2.005
+
+Each duplicate pair has:
+  - byte-for-byte identical metadata.text (confirmed on a 992-char chunk,
+    far longer than the 200-char chunk_overlap -- overlap can only share a
+    boundary substring between ADJACENT chunks, it cannot produce two
+    chunks with 100% identical full text)
+  - a different, unrelated random UUID as the vector id
+  - embedding values that are either byte-identical (cosine = 1.0 exactly)
+    or almost-identical with tiny floating point differences
+    (cosine ~0.9999996) depending on the pair
+
+RULED OUT: chunk_size/chunk_overlap settings
+---------------------------------------------
+Chunk overlap (chunk_size=1000, overlap=200) only explains partial text
+sharing between two ADJACENT chunks at a page boundary. It cannot explain:
+  - two DIFFERENT ids sharing the ENTIRE text of a 992-char chunk
+  - an exact ~2.00x ratio, uniform across 4 unrelated documents
+    (natural overlap would vary per document depending on paragraph
+    structure, not land on a clean 2x every time)
+
+MOST LIKELY ROOT CAUSE
+-----------------------
+The fixture was built by running the extract -> split -> embed -> upsert
+pipeline twice against the same 4 PDFs, and both runs' output ended up in
+the final jsonl.gz dump (each run assigns fresh random UUIDs per chunk,
+which is why ids differ but content doesn't).
+
+IMPACT
+------
+Not a correctness bug -- duplicate chunks carry identical grounded text,
+so an answer would not be factually wrong. But it wastes retrieval slots:
+a top_k=N query could return the same underlying content twice under two
+ids, so you effectively get fewer than N distinct pieces of context. It
+also roughly doubles index size for no benefit.
+
+FIX APPLIED
+-----------
+scripts/dedupe_vectors.py -- a standalone script, run AFTER load_vectors.py,
+that:
+  1. reads the fixture and groups records by (namespace, title, text)
+  2. keeps the first id seen per group
+  3. deletes every other id in that group directly from the live index
+     via index.delete(ids=[...], namespace=...)
+
+Does not modify data/pinecone_vectors.jsonl.gz or load_vectors.py.
+
+RESULT (verified against the running pinecone-local index)
+------------------------------------------------------------
+  before: 4072 total vectors
+  after:  2034 total vectors
+  re-ran a similarity query (Alphabet 10-K, top_k=5) before/after:
+    before -> two results tied at score 1.0000 (duplicate chunk)
+    after  -> 5 distinct pages, no tied scores
+
+HOW TO USE
+----------
+  uv run python scripts/dedupe_vectors.py --dry-run   # report counts only
+  uv run python scripts/dedupe_vectors.py              # actually delete
+
+CAVEAT
+------
+This cleans the CURRENTLY loaded index. If you ever wipe pinecone-local
+(docker compose down -v) and re-run load_vectors.py against the raw
+fixture, the duplicates come back -- run dedupe_vectors.py again after
+any full reload.
