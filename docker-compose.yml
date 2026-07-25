@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smc-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-findb}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  pinecone:
+    image: ghcr.io/pinecone-io/pinecone-local:latest
+    container_name: smc-pinecone
+    environment:
+      PINECONE_HOST: localhost
+      PORT: 5080
+    ports:
+      # 5080 = control plane (create/list indexes).
+      # 5081+ = one port per created index; the SDK connects to those directly,
+      - "5080-5090:5080-5090"
+    # Apple Silicon: 
+    platform: linux/amd64
+
+volumes:
+  pgdata:
