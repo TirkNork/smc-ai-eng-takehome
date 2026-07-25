@@ -1,0 +1,24 @@
+[project]
+name = "smc-ai-eng-takehome"
+version = "0.1.0"
+description = "Financial Q&A chatbot grounded in SQL + 10-K vector search"
+requires-python = ">=3.12"
+dependencies = [
+    "pinecone>=5.0.0",
+    "python-dotenv>=1.0.1",
+    "psycopg[binary]>=3.2.0",
+    "pydantic-settings>=2.5.0",
+    "openai>=1.50.0",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
