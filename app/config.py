@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     openai_chat_model: str = "gpt-4o-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dim: int = 512
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
 
     # LangSmith tracing. Optional -- the app runs normally without a key.
     langsmith_tracing: bool = False

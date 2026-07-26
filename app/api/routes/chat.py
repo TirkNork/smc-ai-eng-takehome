@@ -1,9 +1,11 @@
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import get_graph
+from app.api.deps import get_current_user, get_graph
 from app.data_access.companies import COMPANY_BY_VECTOR_TITLE
+from app.schemas.auth import User
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
 
 logger = logging.getLogger(__name__)
@@ -27,7 +29,14 @@ def _citations(vector_results: list[dict]) -> list[Citation]:
 # FastAPI runs a sync endpoint in a threadpool, so those never block the event
 # loop -- declaring it `async def` would.
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest, graph=Depends(get_graph)) -> ChatResponse:
+def chat(
+    payload: ChatRequest,
+    # Signed-in users only. `user` is unused by the answer itself for now; it is
+    # the hook for anything per-account -- persisting this conversation instead
+    # of having the client replay it, per-user quotas, an audit trail.
+    user: Annotated[User, Depends(get_current_user)],
+    graph=Depends(get_graph),
+) -> ChatResponse:
     try:
         state = graph.invoke(
             {

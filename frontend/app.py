@@ -10,6 +10,7 @@ is never invented, and that is only believable if it is visible.
 import streamlit as st
 
 import api_client
+import auth
 
 ROUTE_LABEL = {
     "sql": "📊 Financial database",
@@ -57,7 +58,9 @@ def render_sources(meta: dict) -> None:
             st.caption(bit)
 
 
-# --- sidebar -----------------------------------------------------------------
+# --- sidebar, before the gate ------------------------------------------------
+# Rendered while signed out too, which is why /health needs no auth: "the stack
+# is down" and "you are not signed in" must not look the same.
 with st.sidebar:
     st.subheader("Backend")
     status = api_client.health()
@@ -74,8 +77,20 @@ with st.sidebar:
         "2022-2025) and four FY2025 10-K filings (Alphabet, Amazon, Apple, Meta). "
         "Anything outside that is refused rather than guessed."
     )
-    if st.button("Clear conversation"):
+
+# Halts the script and shows the sign-in form when there is no token, so nothing
+# below can run unauthenticated.
+token = auth.require_login()
+
+# --- sidebar, signed in ------------------------------------------------------
+with st.sidebar:
+    st.divider()
+    st.caption(f"Signed in as **{st.session_state.username}**")
+    if st.button("Clear conversation", use_container_width=True):
         st.session_state.messages = []
+        st.rerun()
+    if st.button("Sign out", use_container_width=True):
+        auth.sign_out()
         st.rerun()
 
 # --- main --------------------------------------------------------------------
@@ -111,7 +126,13 @@ if question:
     with st.chat_message("assistant"):
         with st.spinner("Retrieving and checking sources…"):
             try:
-                result = api_client.ask(question, history)
+                result = api_client.ask(question, history, token)
+            except api_client.AuthError as exc:
+                # The token expired mid-conversation. Drop it so the next run
+                # shows the sign-in form instead of failing every question.
+                st.session_state.pop("token", None)
+                st.warning(str(exc))
+                st.stop()
             except api_client.BackendError as exc:
                 st.error(str(exc))
                 # Not stored in history: it is a transport failure, not an

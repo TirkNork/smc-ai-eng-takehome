@@ -13,6 +13,9 @@ dependencies = [
     "langchain-openai>=1.4.1",
     "fastapi>=0.140.0",
     "uvicorn[standard]>=0.51.0",
+    "pyjwt>=2.10.0",
+    "bcrypt>=4.2.0",
+    "python-multipart>=0.0.20",
 ]
 
 # Frontend-only deps, kept out of the default set so the backend image does

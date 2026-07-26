@@ -16,13 +16,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.agent.graph import build_graph
-from app.api.routes import chat, health
+from app.api.routes import auth, chat, health
+from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not settings.jwt_secret:
+        raise RuntimeError(
+            "JWT_SECRET is not set. Generate one with:\n"
+            '  python -c "import secrets; print(secrets.token_urlsafe(32))"'
+        )
+
     # Compiled once rather than per request. build_graph() also enables
     # LangSmith tracing if configured. It performs no I/O, so the app still
     # starts when Postgres or Pinecone are down -- those surface per request
@@ -40,4 +47,5 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(chat.router)
