@@ -56,5 +56,18 @@ services:
       pinecone:
         condition: service_started
 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: smc-frontend
+    environment:
+      # Reached by service name over the compose network, not localhost.
+      BACKEND_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+
 volumes:
   pgdata:

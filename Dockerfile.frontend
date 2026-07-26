@@ -1,0 +1,22 @@
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /srv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1
+
+# Dependencies first, so editing UI code does not re-resolve them.
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --no-dev --extra frontend
+
+COPY frontend ./frontend
+
+ENV PATH="/srv/.venv/bin:$PATH"
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "frontend/app.py", \
+     "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
