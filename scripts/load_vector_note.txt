@@ -77,3 +77,16 @@ This cleans the CURRENTLY loaded index. If you ever wipe pinecone-local
 (docker compose down -v) and re-run load_vectors.py against the raw
 fixture, the duplicates come back -- run dedupe_vectors.py again after
 any full reload.
+
+PINECONE-LOCAL KEEPS NO VOLUME
+-------------------------------
+The pinecone service in docker-compose.yml has no volume, so the index
+lives only in container memory. ANY recreate of that container -- not just
+`down -v`, but also editing its compose definition, or `docker compose down`
+-- drops every vector, and the API then reports
+  "pinecone": "error: NotFoundError"
+on /health. Postgres is unaffected (it has the pgdata volume).
+
+Recovery is always the same two commands:
+  uv run python scripts/load_vectors.py
+  uv run python scripts/dedupe_vectors.py

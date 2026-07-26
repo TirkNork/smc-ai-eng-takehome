@@ -6,6 +6,7 @@ search that can't return anything -- callers must treat [] as "data not
 available", not silently proceed.
 """
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from openai import OpenAI
 from pinecone import Pinecone
@@ -18,16 +19,40 @@ _pinecone_client = Pinecone(api_key=settings.pinecone_api_key, host=settings.pin
 _index = None
 
 
+def _resolve_index_host(advertised: str) -> str:
+    """Turn the host describe_index reports into one we can actually reach.
+
+    pinecone-local reports `https://<PINECONE_HOST env>:<per-index port>`, but
+    serves plain HTTP -- connecting as advertised fails the TLS handshake.
+    It also always reports the host *it* was configured with, which is wrong
+    for whoever is calling: from the host machine that is `localhost`, but
+    from another container on the compose network it must be the service name.
+
+    So for a local emulator we keep the per-index port (5081+, assigned per
+    index) and substitute the host we are configured to reach Pinecone at.
+    A real Pinecone endpoint is returned untouched.
+    """
+    parsed = urlparse(advertised)
+    if parsed.hostname not in ("localhost", "127.0.0.1"):
+        return advertised
+
+    reachable_host = urlparse(settings.pinecone_host).hostname or "localhost"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"http://{reachable_host}{port}"
+
+
 def _get_index():
     global _index
     if _index is None:
         desc = _pinecone_client.describe_index(settings.pinecone_index)
-        # pinecone-local advertises https in describe_index but only serves
-        # plain HTTP on the per-index port -- force http or the client's TLS
-        # handshake fails.
-        host = desc.host.replace("https://", "http://")
-        _index = _pinecone_client.Index(host=host)
+        _index = _pinecone_client.Index(host=_resolve_index_host(desc.host))
     return _index
+
+
+def get_index_stats() -> int:
+    """Total vectors in the index. Used by the health check to confirm the
+    index exists and has been loaded."""
+    return _get_index().describe_index_stats().total_vector_count
 
 
 @lru_cache(maxsize=128)

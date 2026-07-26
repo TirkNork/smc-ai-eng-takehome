@@ -10,6 +10,11 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-findb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   pinecone:
     image: ghcr.io/pinecone-io/pinecone-local:latest
@@ -21,8 +26,35 @@ services:
       # 5080 = control plane (create/list indexes).
       # 5081+ = one port per created index; the SDK connects to those directly,
       - "5080-5090:5080-5090"
-    # Apple Silicon: 
+    # Apple Silicon:
     platform: linux/amd64
+    networks:
+      default:
+        # The Pinecone SDK rejects a host with no dot in it ("must contain a
+        # dot or 'localhost'"), so the bare compose service name `pinecone`
+        # cannot be used as an index host. This alias gives it a dotted name.
+        aliases:
+          - pinecone.local
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: smc-api
+    # Brings in OPENAI_API_KEY / LANGSMITH_* from .env; the two entries below
+    # override the host-oriented URLs, since inside the compose network the
+    # databases are reached by service name, not localhost.
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-findb}
+      PINECONE_HOST: http://pinecone.local:5080
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pinecone:
+        condition: service_started
 
 volumes:
   pgdata:

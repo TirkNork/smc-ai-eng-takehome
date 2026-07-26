@@ -1,0 +1,21 @@
+# Secrets never belong in an image layer -- values come from compose env.
+.env
+.env.*
+
+# Fixtures are loaded into the databases by scripts run on the host; the API
+# never reads them, and they are ~26MB.
+data/
+10k_filings/
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+.git/
+.github/
+doc/
+tests/
+scripts/
+*.md
+*.pdf

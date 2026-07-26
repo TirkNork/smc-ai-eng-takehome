@@ -36,7 +36,20 @@ _llm = ChatOpenAI(
 
 
 def classify_question(state: GraphState) -> dict:
-    system_prompt = classify_system_prompt(list_known_companies())
+    # Captured as `error` rather than raised, matching fetch_data: a database
+    # outage should reach the user as the same honest "temporarily
+    # unavailable" reply wherever it happens, not as an HTTP error from this
+    # node and a graceful message from the next one.
+    try:
+        known_companies = list_known_companies()
+    except Exception as exc:
+        return {
+            "route": "unsupported",
+            "companies": [],
+            "error": f"could not reach the financial database ({type(exc).__name__})",
+        }
+
+    system_prompt = classify_system_prompt(known_companies)
 
     result: Classification = _llm.invoke(
         [
