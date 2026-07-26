@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.agent.graph import build_graph
-from app.api.routes import auth, chat, health
+from app.api.routes import auth, chat, health, sessions
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -49,3 +49,4 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(chat.router)
+app.include_router(sessions.router)

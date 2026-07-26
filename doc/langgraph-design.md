@@ -37,11 +37,18 @@ it.
 So history is given exactly one job: **deciding what the question means, never
 what the data is.**
 
-- The client sends the transcript with each request (`ChatRequest.history`), so
-  the API stays stateless — nothing to migrate when auth lands.
-- It reaches **`classify` only**. That node rewrites the question into
-  `standalone_question`; every node after it sees that string and never the
-  transcript. All data is re-retrieved from Postgres and Pinecone every turn.
+- History lives in Postgres (`chat_sessions` / `chat_messages`, see
+  `app/data_access/chat_history.py`), keyed by a per-user, per-conversation
+  `session_id`. The client sends only `{question, session_id}` — never the
+  transcript itself, so it can no longer put words in an earlier "assistant"
+  turn's mouth the way a client-supplied history could.
+- `POST /chat` loads that session's prior turns from the DB (ownership checked
+  against the signed-in user first) and passes them into the graph as
+  `history`. It reaches **`classify` only**. That node rewrites the question
+  into `standalone_question`; every node after it sees that string and never
+  the transcript. All data is re-retrieved from Postgres and Pinecone every
+  turn — a stored message is never treated as a source of facts, only as
+  context for what a follow-up means.
 - Two failure modes the prompt could not fix reliably, so they are enforced in
   code instead:
   - the rewrite does not always keep the user's language, so `synthesize` and
@@ -51,10 +58,10 @@ what the data is.**
     companies, which would retrieve *their* data for a question that never
     asked about them — and count as grounded. `mentioned_in()` narrows the list
     to companies the resolved question actually names, and never to nothing.
+- A session row is only created once a turn actually succeeds — a failed first
+  message leaves no empty, title-only conversation behind.
 
-A LangGraph checkpointer with `thread_id` would move this state server-side;
-that becomes worthwhile alongside auth, when a conversation should outlive one
-browser session.
+
 
 ## Why this shape
 

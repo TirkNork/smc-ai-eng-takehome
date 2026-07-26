@@ -79,3 +79,4 @@ def sign_out() -> None:
     st.session_state.pop("token", None)
     st.session_state.pop("username", None)
     st.session_state.messages = []
+    st.session_state.session_id = None

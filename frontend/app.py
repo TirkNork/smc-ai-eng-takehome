@@ -82,13 +82,72 @@ with st.sidebar:
 # below can run unauthenticated.
 token = auth.require_login()
 
+def _load_session(session_id: str | None) -> None:
+    """Switches the active conversation, pulling its messages from the server
+    -- session_state only ever holds what's currently on screen, never the
+    source of truth."""
+    st.session_state.session_id = session_id
+    if session_id is None:
+        st.session_state.messages = []
+        return
+    try:
+        rows = api_client.get_session_messages(session_id, token)
+    except (api_client.AuthError, api_client.BackendError) as exc:
+        st.error(str(exc))
+        st.session_state.session_id = None
+        st.session_state.messages = []
+        return
+    st.session_state.messages = [
+        {
+            "role": row["role"],
+            "content": row["content"],
+            "meta": {
+                "grounded": row["grounded"],
+                "missing_reason": row["missing_reason"],
+                "route": row["route"],
+                "companies": row["companies"],
+                "citations": row["citations"],
+            },
+        }
+        for row in rows
+    ]
+
+
 # --- sidebar, signed in ------------------------------------------------------
 with st.sidebar:
     st.divider()
     st.caption(f"Signed in as **{st.session_state.username}**")
-    if st.button("Clear conversation", use_container_width=True):
-        st.session_state.messages = []
+
+    if st.button("➕ New chat", use_container_width=True):
+        _load_session(None)
         st.rerun()
+
+    try:
+        past_sessions = api_client.list_sessions(token)
+    except (api_client.AuthError, api_client.BackendError) as exc:
+        past_sessions = []
+        st.error(str(exc))
+
+    for session in past_sessions:
+        is_active = session["id"] == st.session_state.get("session_id")
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            label = ("**" + session["title"] + "**") if is_active else session["title"]
+            if st.button(label, key=f"session-{session['id']}", use_container_width=True):
+                _load_session(session["id"])
+                st.rerun()
+        with col2:
+            if st.button("🗑", key=f"delete-{session['id']}"):
+                try:
+                    api_client.delete_session(session["id"], token)
+                except (api_client.AuthError, api_client.BackendError) as exc:
+                    st.error(str(exc))
+                else:
+                    if is_active:
+                        _load_session(None)
+                st.rerun()
+
+    st.divider()
     if st.button("Sign out", use_container_width=True):
         auth.sign_out()
         st.rerun()
@@ -98,6 +157,8 @@ st.title("📊 Financial Q&A")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
 
 if not st.session_state.messages:
     st.caption("Try one of these:")
@@ -117,8 +178,6 @@ if not question and "pending" in st.session_state:
     question = st.session_state.pop("pending")
 
 if question:
-    history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
-
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
         st.markdown(question)
@@ -126,7 +185,7 @@ if question:
     with st.chat_message("assistant"):
         with st.spinner("Retrieving and checking sources…"):
             try:
-                result = api_client.ask(question, history, token)
+                result = api_client.ask(question, st.session_state.session_id, token)
             except api_client.AuthError as exc:
                 # The token expired mid-conversation. Drop it so the next run
                 # shows the sign-in form instead of failing every question.
@@ -142,10 +201,15 @@ if question:
         st.markdown(result["answer"])
         render_sources(result)
 
+    # The very first message in a conversation gets a session_id back that
+    # didn't exist before this call -- store it so the next question continues
+    # the same conversation instead of starting a new one each time.
+    st.session_state.session_id = result["session_id"]
+
     st.session_state.messages.append(
         {"role": "assistant", "content": result["answer"], "meta": result}
     )
     # Redraw so the example buttons (rendered earlier this run, while the
-    # history was still empty) disappear now that a conversation exists.
-    # Cheap: the answer is already in session_state, so nothing is re-fetched.
+    # history was still empty) disappear now that a conversation exists, and
+    # so the sidebar's session list picks up the new/renamed conversation.
     st.rerun()

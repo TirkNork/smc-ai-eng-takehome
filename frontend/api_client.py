@@ -70,11 +70,15 @@ def login(username: str, password: str) -> str:
     return response.json()["access_token"]
 
 
-def ask(question: str, history: list[dict] | None = None, token: str = "") -> dict:
+def ask(question: str, session_id: str | None, token: str) -> dict:
+    """session_id=None starts a new conversation; the response's own session_id
+    (a fresh one, or the same one echoed back) is what the caller should keep
+    sending from here on. History itself is never sent -- the server holds it,
+    keyed by session_id."""
     try:
         response = httpx.post(
             f"{BACKEND_URL}/chat",
-            json={"question": question, "history": history or []},
+            json={"question": question, "session_id": session_id},
             headers=_bearer(token),
             timeout=TIMEOUT,
         )
@@ -84,12 +88,66 @@ def ask(question: str, history: list[dict] | None = None, token: str = "") -> di
     if response.status_code == 401:
         # Reachable mid-conversation: the token expired since sign-in.
         raise AuthError("Your session expired. Please sign in again.")
+    if response.status_code == 404:
+        raise BackendError("That conversation no longer exists.")
     if response.status_code == 503:
         raise BackendError("The assistant is temporarily unavailable. Please try again.")
     if response.status_code >= 400:
         raise BackendError(f"API returned {response.status_code}.")
 
     return response.json()
+
+
+def list_sessions(token: str) -> list[dict]:
+    try:
+        response = httpx.get(
+            f"{BACKEND_URL}/sessions", headers=_bearer(token), timeout=TIMEOUT
+        )
+    except httpx.RequestError as exc:
+        raise _unreachable(exc) from exc
+
+    if response.status_code == 401:
+        raise AuthError("Your session expired. Please sign in again.")
+    if response.status_code >= 400:
+        raise BackendError(f"API returned {response.status_code}.")
+
+    return response.json()
+
+
+def get_session_messages(session_id: str, token: str) -> list[dict]:
+    try:
+        response = httpx.get(
+            f"{BACKEND_URL}/sessions/{session_id}/messages",
+            headers=_bearer(token),
+            timeout=TIMEOUT,
+        )
+    except httpx.RequestError as exc:
+        raise _unreachable(exc) from exc
+
+    if response.status_code == 401:
+        raise AuthError("Your session expired. Please sign in again.")
+    if response.status_code == 404:
+        raise BackendError("That conversation no longer exists.")
+    if response.status_code >= 400:
+        raise BackendError(f"API returned {response.status_code}.")
+
+    return response.json()
+
+
+def delete_session(session_id: str, token: str) -> None:
+    try:
+        response = httpx.delete(
+            f"{BACKEND_URL}/sessions/{session_id}", headers=_bearer(token), timeout=TIMEOUT
+        )
+    except httpx.RequestError as exc:
+        raise _unreachable(exc) from exc
+
+    if response.status_code == 401:
+        raise AuthError("Your session expired. Please sign in again.")
+    if response.status_code not in (204, 404):
+        # 404 is treated as success: the end state the caller wants (the
+        # session being gone) already holds.
+        raise BackendError(f"API returned {response.status_code}.")
 
 
 def _first_validation_error(response: httpx.Response) -> str:
