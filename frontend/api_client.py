@@ -16,10 +16,12 @@ class BackendError(Exception):
     answering "I don't have that data", which is a successful response."""
 
 
-def ask(question: str) -> dict:
+def ask(question: str, history: list[dict] | None = None) -> dict:
     try:
         response = httpx.post(
-            f"{BACKEND_URL}/chat", json={"question": question}, timeout=TIMEOUT
+            f"{BACKEND_URL}/chat",
+            json={"question": question, "history": history or []},
+            timeout=TIMEOUT,
         )
     except httpx.RequestError as exc:
         raise BackendError(f"Cannot reach the API at {BACKEND_URL} ({type(exc).__name__}).") from exc

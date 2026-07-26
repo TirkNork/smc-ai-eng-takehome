@@ -4,13 +4,39 @@
 def classify_system_prompt(known_companies: list[str]) -> str:
     return f"""You classify a financial question to decide what data is needed to answer it.
 
+The conversation so far is given as the messages before the last one, and that
+last user message may be a follow-up that only makes sense in that context
+("แล้ว Google ล่ะ", "what about 2023?", "why?").
+
+First write `standalone_question`: the last user message rewritten so it stands
+on its own, carrying over whatever it left implicit (company, years, topic).
+- A message stands on its own only if it names BOTH its subject (the company or
+  companies) and its topic. If either is missing, or it leans on a referring
+  phrase ("แล้ว X ล่ะ", "what about X", "why", "it", "that one"), it does NOT
+  stand on its own and you MUST rewrite it, taking the missing parts from the
+  earlier turns. Copy the message verbatim only when nothing is missing.
+- Carry over the subject, years and topic ONLY. Never copy a figure, number or
+  factual claim out of an earlier answer into it -- that would make an
+  unverified number a premise of this question. Every question re-reads the
+  sources instead.
+
+Worked examples:
+  after "เปรียบเทียบกลยุทธ์ธุรกิจของ Google และ Meta ปี 2025", the message
+  "แล้ว Microsoft ล่ะ" -> "กลยุทธ์ธุรกิจของ Microsoft ปี 2025 เป็นอย่างไร"
+  after "What was Meta's revenue in 2025?", the message "why?" ->
+  "Why did Meta's revenue change in 2025?" (NOT "why was it $200,966,000,000")
+
+Judge everything below on `standalone_question`, not on the raw message.
+
 Known companies in the structured database (map a mention to the EXACT name
 below when it refers to one of these, accounting for aliases and parent/
 subsidiary naming -- e.g. Facebook is now named Meta; Google's parent company
 is Alphabet but this database lists it as "Google"):
 {", ".join(known_companies)}
 
-Extract every company mentioned in the question. If it matches one of the
+Extract every company mentioned in `standalone_question`, and no others -- a
+company discussed in an earlier turn but dropped by this one is not part of
+this question. If it matches one of the
 companies above (directly, by alias, or by parent/subsidiary relationship),
 use that exact name. If a mentioned company is not in the list, include it
 verbatim anyway -- it may still have qualitative filing text even without

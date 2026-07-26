@@ -1,6 +1,6 @@
 """check_grounding is the no-hallucination gate -- pure logic over state, so
 these run without a DB, Pinecone, or any LLM call."""
-from app.agent.nodes import check_grounding
+from app.agent.nodes import _question_block, check_grounding
 
 APPLE_ROW = {"company": "Apple", "year": 2025, "revenue": 416161000000}
 APPLE_CHUNK = {"title": "aapl-20250927", "page": 1, "text": "...", "score": 0.5}
@@ -80,3 +80,19 @@ def test_source_outage_is_not_reported_as_missing_data():
     )
     assert result["grounded"] is False
     assert "could not reach" in result["missing_reason"]
+
+
+def test_question_block_is_just_the_question_on_a_first_turn():
+    # Nothing was rewritten, so there is no second wording to disambiguate.
+    block = _question_block({"question": "Apple net income 2025", "standalone_question": "Apple net income 2025"})
+    assert block == "Question: Apple net income 2025"
+
+
+def test_question_block_anchors_the_reply_language_to_the_users_own_wording():
+    # The rewrite is not reliably in the user's language, and the reply must be.
+    block = _question_block(
+        {"question": "why?", "standalone_question": "ทำไมรายได้ของ Meta ถึงเติบโต"}
+    )
+    assert "why?" in block
+    assert "ทำไมรายได้ของ Meta ถึงเติบโต" in block
+    assert "REPLY IN THIS LANGUAGE" in block

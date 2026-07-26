@@ -36,3 +36,32 @@ COMPANY_BY_VECTOR_TITLE = {title: company for company, title in VECTOR_TITLE_BY_
 
 def normalize_company(name: str) -> str:
     return COMPANY_ALIASES.get(name.strip().lower(), name.strip())
+
+
+def _squash(text: str) -> str:
+    """Lowercase and drop spaces, so "American Express" in a question matches
+    "AmericanExpress" as the table spells it."""
+    return "".join(text.lower().split())
+
+
+def mentioned_in(companies: list[str], text: str) -> list[str]:
+    """Narrow `companies` to those actually named in `text`.
+
+    A follow-up question carries its conversation in the prompt, so the
+    classifier tends to keep returning companies from earlier turns. Left
+    alone, a question about a company we hold nothing for would still retrieve
+    the earlier companies' data and count as grounded.
+
+    Returns `companies` unchanged when the match finds nothing -- a company
+    named by ticker or an unlisted spelling must not be dropped, so this only
+    ever narrows, never empties.
+    """
+    haystack = _squash(text)
+
+    def named(company: str) -> bool:
+        # Its canonical name, or any alias resolving to it -- a question saying
+        # "Facebook" names Meta.
+        spellings = [company] + [a for a, c in COMPANY_ALIASES.items() if c == company]
+        return any(_squash(s) in haystack for s in spellings)
+
+    return [c for c in companies if named(c)] or companies

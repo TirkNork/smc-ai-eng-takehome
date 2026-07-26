@@ -12,7 +12,7 @@ the graph rather than left to the model's discretion.
 
 | Node | Responsibility |
 |------|----------------|
-| `classify` | One LLM call with structured output (`app/agent/router.py`). Extracts companies — mapped onto the exact strings `financial_data` stores, e.g. Facebook→**Meta**, Alphabet→**Google**, "Bank of America"→**BankOfAmerica** — picks a route (`sql`/`vector`/`hybrid`/`unsupported`), and emits an **English `retrieval_query`** for the filings search. The model is given the real company list read from Postgres. |
+| `classify` | One LLM call with structured output (`app/agent/router.py`). Rewrites a follow-up into a self-contained `standalone_question`, extracts companies — mapped onto the exact strings `financial_data` stores, e.g. Facebook→**Meta**, Alphabet→**Google**, "Bank of America"→**BankOfAmerica** — picks a route (`sql`/`vector`/`hybrid`/`unsupported`), and emits an **English `retrieval_query`** for the filings search. The model is given the real company list read from Postgres. |
 | `fetch_data` | Call `query_financials` (Postgres) and/or `search_filings` (Pinecone, filtered per company via `metadata.title`). Source failures are captured as `error`, not raised. |
 | `check_grounding` | **The no-hallucination gate.** Derives coverage from what was *actually returned* per requested company, uniformly across all routes, and names any company that produced nothing in `missing_reason`. Refuses only when nothing at all came back; partial coverage proceeds with the gap disclosed. |
 | `synthesize` | LLM composes the answer using retrieved SQL rows + filing chunks as the *only* allowed context. If `missing_reason` is set, the answer must state the gap — while still using every figure that *is* available. |
@@ -25,6 +25,36 @@ the graph rather than left to the model's discretion.
 | **Q1** Apple net income 2022-2025 | `sql` | Postgres only | Pure structured lookup. |
 | **Q2** Google vs Facebook revenue structure & strategy 2025 | `hybrid` | Postgres + vector | Two *separate* per-company filtered vector queries (Google, Meta) so results don't mix. |
 | **Q3** Highest revenue growth among MSFT/AAPL/GOOG/FB + why | `hybrid` | Postgres + vector | Growth from SQL; "why" from 10-Ks — **but Microsoft has no filing**, so `check_grounding` sets a `missing_reason` and the answer must flag that the "why" is unavailable for Microsoft. |
+
+## Conversation context
+
+Follow-ups like *"แล้ว Google ล่ะ"* or *"why?"* need the earlier turns, but
+history is also the easiest way to reintroduce hallucination: a figure quoted in
+an earlier answer could be restated without being re-retrieved, and
+`check_grounding` — which only inspects *this* turn's results — would never see
+it.
+
+So history is given exactly one job: **deciding what the question means, never
+what the data is.**
+
+- The client sends the transcript with each request (`ChatRequest.history`), so
+  the API stays stateless — nothing to migrate when auth lands.
+- It reaches **`classify` only**. That node rewrites the question into
+  `standalone_question`; every node after it sees that string and never the
+  transcript. All data is re-retrieved from Postgres and Pinecone every turn.
+- Two failure modes the prompt could not fix reliably, so they are enforced in
+  code instead:
+  - the rewrite does not always keep the user's language, so `synthesize` and
+    `refuse` are given the user's own wording as an explicit language anchor
+    alongside the rewrite (`_question_block`).
+  - with history in the prompt the classifier keeps returning earlier turns'
+    companies, which would retrieve *their* data for a question that never
+    asked about them — and count as grounded. `mentioned_in()` narrows the list
+    to companies the resolved question actually names, and never to nothing.
+
+A LangGraph checkpointer with `thread_id` would move this state server-side;
+that becomes worthwhile alongside auth, when a conversation should outlive one
+browser session.
 
 ## Why this shape
 
@@ -40,9 +70,9 @@ the graph rather than left to the model's discretion.
 
 ## State
 
-`GraphState` (see `app/agent/state.py`) carries: `question`, `companies`,
-`route`, `retrieval_query`, `sql_results`, `vector_results`, `grounded`,
-`missing_reason`, `error`, `answer`.
+`GraphState` (see `app/agent/state.py`) carries: `question`, `history`,
+`standalone_question`, `companies`, `route`, `retrieval_query`, `sql_results`,
+`vector_results`, `grounded`, `missing_reason`, `error`, `answer`.
 
 `error` is deliberately separate from `missing_reason`: an unreachable
 database must never be reported to the user as "this data does not exist",

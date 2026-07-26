@@ -20,6 +20,31 @@ from app.data_access.vector import search_filings
 _llm = ChatOpenAI(api_key=settings.openai_api_key, model=settings.openai_chat_model, temperature=0)
 
 
+def _question(state: GraphState) -> str:
+    """What this turn is actually asking. classify rewrites a follow-up into a
+    self-contained question; falls back to the raw text on a first turn or if
+    classify short-circuited on a database error."""
+    return state.get("standalone_question") or state["question"]
+
+
+def _question_block(state: GraphState) -> str:
+    """Both wordings, for the nodes that write the reply.
+
+    The rewrite is what the question MEANS, but it is not reliably in the
+    user's language ("why?" came back rewritten in Thai). So the user's own
+    wording is given alongside it as the language anchor -- the reply must
+    match how they wrote it.
+    """
+    question = state["question"]
+    standalone = _question(state)
+    if standalone == question:
+        return f"Question: {question}"
+    return (
+        f"Question, as the user wrote it -- REPLY IN THIS LANGUAGE: {question}\n"
+        f"The same question resolved against the conversation, this is what to answer: {standalone}"
+    )
+
+
 def fetch_data(state: GraphState) -> dict:
     """Retrieval failures are captured as `error` rather than raised, so an
     outage is reported honestly as a service problem instead of crashing --
@@ -38,7 +63,7 @@ def fetch_data(state: GraphState) -> dict:
         results = []
         try:
             for company in state["companies"]:
-                results.extend(search_filings(company, state.get("retrieval_query") or state["question"]))
+                results.extend(search_filings(company, state.get("retrieval_query") or _question(state)))
         except Exception as exc:
             updates["error"] = f"could not reach the filings search service ({type(exc).__name__})"
             return updates
@@ -127,7 +152,7 @@ def synthesize_answer(state: GraphState) -> dict:
     response = _llm.invoke(
         [
             {"role": "system", "content": SYNTHESIZE_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Question: {state['question']}\n\nAvailable data:\n{context}"},
+            {"role": "user", "content": f"{_question_block(state)}\n\nAvailable data:\n{context}"},
         ]
     )
     return {"answer": response.content}
@@ -139,7 +164,7 @@ def refuse_answer(state: GraphState) -> dict:
             {"role": "system", "content": REFUSE_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": f"Question: {state['question']}\n\nReason: {state.get('missing_reason') or 'unknown reason'}",
+                "content": f"{_question_block(state)}\n\nReason: {state.get('missing_reason') or 'unknown reason'}",
             },
         ]
     )

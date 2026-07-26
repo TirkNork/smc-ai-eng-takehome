@@ -102,6 +102,8 @@ if not question and "pending" in st.session_state:
     question = st.session_state.pop("pending")
 
 if question:
+    history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
         st.markdown(question)
@@ -109,7 +111,7 @@ if question:
     with st.chat_message("assistant"):
         with st.spinner("Retrieving and checking sources…"):
             try:
-                result = api_client.ask(question)
+                result = api_client.ask(question, history)
             except api_client.BackendError as exc:
                 st.error(str(exc))
                 # Not stored in history: it is a transport failure, not an

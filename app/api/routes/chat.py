@@ -29,7 +29,12 @@ def _citations(vector_results: list[dict]) -> list[Citation]:
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, graph=Depends(get_graph)) -> ChatResponse:
     try:
-        state = graph.invoke({"question": payload.question})
+        state = graph.invoke(
+            {
+                "question": payload.question,
+                "history": [turn.model_dump() for turn in payload.history],
+            }
+        )
     except Exception:
         # Data-source failures are already handled inside the graph and come
         # back as a normal grounded=False answer. Reaching here means the LLM

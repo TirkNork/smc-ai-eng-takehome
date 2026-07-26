@@ -3,6 +3,8 @@ from typing import Literal, Optional, TypedDict
 
 class GraphState(TypedDict, total=False):
     question: str
+    history: list[dict]
+    standalone_question: str
     companies: list[str]
     route: Literal["sql", "vector", "hybrid", "unsupported"]
     retrieval_query: str

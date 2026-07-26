@@ -20,11 +20,17 @@ from pydantic import BaseModel, Field
 from app.agent.prompts import classify_system_prompt
 from app.agent.state import GraphState
 from app.config import settings
-from app.data_access.companies import normalize_company
+from app.data_access.companies import mentioned_in, normalize_company
 from app.data_access.sql import list_known_companies
 
 
 class Classification(BaseModel):
+    # Declared first on purpose: structured output is generated field by field
+    # in this order, so the model resolves the follow-up before deciding
+    # companies and route -- and can then read those off a complete question.
+    standalone_question: str = Field(
+        description="The question rewritten to stand alone, in its original language"
+    )
     companies: list[str] = Field(description="Company names, mapped to the known list where applicable")
     route: Literal["sql", "vector", "hybrid", "unsupported"]
     retrieval_query: str = Field(default="", description="English query describing what to find in the 10-K filings")
@@ -51,9 +57,14 @@ def classify_question(state: GraphState) -> dict:
 
     system_prompt = classify_system_prompt(known_companies)
 
+    # History is passed as real prior turns, so the model resolves a follow-up
+    # the way it reads one. It reaches this node only -- downstream nodes see
+    # the rewritten question, never the transcript, so an earlier answer can't
+    # become a source of facts for this one.
     result: Classification = _llm.invoke(
         [
             {"role": "system", "content": system_prompt},
+            *(state.get("history") or []),
             {"role": "user", "content": state["question"]},
         ]
     )
@@ -63,6 +74,12 @@ def classify_question(state: GraphState) -> dict:
     # the model's output ever slipped.
     companies = sorted({normalize_company(c) for c in result.companies})
 
+    # Narrowed to the companies this question actually names: with history in
+    # the prompt the classifier keeps returning earlier turns' companies, which
+    # would retrieve their data for a question that never asked about them.
+    standalone_question = result.standalone_question.strip() or state["question"]
+    companies = mentioned_in(companies, standalone_question)
+
     # "unsupported" with companies present is not a contradiction: it means the
     # subject matter is outside both sources (e.g. "Apple's share price").
     # Short-circuiting here avoids a pointless DB read, embedding call and
@@ -70,7 +87,8 @@ def classify_question(state: GraphState) -> dict:
     route = "unsupported" if not companies else result.route
 
     return {
+        "standalone_question": standalone_question,
         "companies": companies,
         "route": route,
-        "retrieval_query": result.retrieval_query.strip() or state["question"],
+        "retrieval_query": result.retrieval_query.strip() or standalone_question,
     }
