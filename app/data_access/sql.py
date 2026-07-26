@@ -32,3 +32,15 @@ def query_financials(companies: list[str], years: Optional[list[int]] = None) ->
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params)
             return cur.fetchall()
+
+
+def list_known_companies() -> list[str]:
+    """Every exact `company` string in the table. Company names are
+    inconsistently formatted (e.g. "AmericanExpress" and "BankOfAmerica" have
+    no spaces, but "Morgan Stanley" and "Eli Lilly" do) -- callers matching a
+    natural-language company mention against this table should map onto one
+    of these exact strings rather than guess a spelling."""
+    with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select distinct company from financial_data order by company")
+            return [row[0] for row in cur.fetchall()]

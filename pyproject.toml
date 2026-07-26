@@ -9,6 +9,8 @@ dependencies = [
     "psycopg[binary]>=3.2.0",
     "pydantic-settings>=2.5.0",
     "openai>=1.50.0",
+    "langgraph>=1.2.9",
+    "langchain-openai>=1.4.1",
 ]
 
 [tool.uv]

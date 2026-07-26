@@ -28,6 +28,11 @@ VECTOR_TITLE_BY_COMPANY = {
     "Meta": "meta-20251231",
 }
 
+# Reverse lookup, so grounding checks can derive which companies were
+# ACTUALLY retrieved from the chunks returned, rather than trusting
+# VECTOR_COVERAGE (a constant that can drift from what the index holds).
+COMPANY_BY_VECTOR_TITLE = {title: company for company, title in VECTOR_TITLE_BY_COMPANY.items()}
+
 
 def normalize_company(name: str) -> str:
     return COMPANY_ALIASES.get(name.strip().lower(), name.strip())

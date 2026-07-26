@@ -5,6 +5,8 @@ Returns [] immediately for a company with no filing in the vector store
 search that can't return anything -- callers must treat [] as "data not
 available", not silently proceed.
 """
+from functools import lru_cache
+
 from openai import OpenAI
 from pinecone import Pinecone
 
@@ -28,13 +30,18 @@ def _get_index():
     return _index
 
 
-def _embed_query(text: str) -> list[float]:
+@lru_cache(maxsize=128)
+def _embed_query(text: str) -> tuple[float, ...]:
+    """Cached: a multi-company question issues the same retrieval query once
+    per company, which would otherwise be N identical embedding round-trips.
+    Embeddings are deterministic for a given text+model, so caching is safe.
+    Returns a tuple (immutable) so a cached value can't be mutated by a caller."""
     response = _openai_client.embeddings.create(
         model=settings.openai_embedding_model,
         input=text,
         dimensions=settings.openai_embedding_dim,
     )
-    return response.data[0].embedding
+    return tuple(response.data[0].embedding)
 
 
 def search_filings(company: str, query: str, top_k: int = 5) -> list[dict]:
@@ -42,10 +49,9 @@ def search_filings(company: str, query: str, top_k: int = 5) -> list[dict]:
     if company not in VECTOR_COVERAGE:
         return []
 
-    vector = _embed_query(query)
     index = _get_index()
     results = index.query(
-        vector=vector,
+        vector=list(_embed_query(query)),
         top_k=top_k,
         namespace="__default__",
         filter={"title": {"$eq": VECTOR_TITLE_BY_COMPANY[company]}},
