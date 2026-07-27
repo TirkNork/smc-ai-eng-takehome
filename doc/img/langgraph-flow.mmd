@@ -1,0 +1,12 @@
+%% Source for langgraph-flow.svg. Re-render after changing the graph:
+%%   npx -y @mermaid-js/mermaid-cli -i doc/img/langgraph-flow.mmd -o doc/img/langgraph-flow.svg -b white
+flowchart TD
+    START([Start]) --> CLASSIFY[Classify: chat or data question?<br/>companies, years, route]
+    CLASSIFY -->|general| CONVERSE[Converse: reply about scope,<br/>no retrieval]
+    CLASSIFY -->|data| FETCH[Fetch data: query SQL and/or vector store]
+    FETCH --> GROUND{Grounding: data retrieved?}
+    GROUND -->|grounded| SYNTH[Synthesize: answer from context only]
+    GROUND -->|not grounded| REFUSE[Refuse: state what data is missing]
+    CONVERSE --> DONE([End])
+    SYNTH --> DONE
+    REFUSE --> DONE

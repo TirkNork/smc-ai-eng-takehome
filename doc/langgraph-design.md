@@ -6,17 +6,40 @@ the graph rather than left to the model's discretion.
 
 ## Graph flow
 
-<img src="img/langgraph-flow.svg" alt="LangGraph flow: classify, fetch_data, check_grounding, synthesize or refuse" width="420">
+<img src="img/langgraph-flow.svg" alt="LangGraph flow: classify branches to converse for chat, or to fetch_data, check_grounding, then synthesize or refuse" width="560">
 
 ## Nodes
 
 | Node | Responsibility |
 |------|----------------|
-| `classify` | One LLM call with structured output (`app/agent/router.py`). Rewrites a follow-up into a self-contained `standalone_question`, extracts companies — mapped onto the exact strings `financial_data` stores, e.g. Facebook→**Meta**, Alphabet→**Google**, "Bank of America"→**BankOfAmerica** — picks a route (`sql`/`vector`/`hybrid`/`unsupported`), and emits an **English `retrieval_query`** for the filings search. The model is given the real company list read from Postgres. |
+| `classify` | One LLM call with structured output (`app/agent/router.py`). First decides `kind` — **general** vs **data** — then rewrites a follow-up into a self-contained `standalone_question`, extracts companies (mapped onto the exact strings `financial_data` stores, e.g. Facebook→**Meta**, Alphabet→**Google**, "Bank of America"→**BankOfAmerica**) and any `years` the question names, picks a route (`sql`/`vector`/`hybrid`/`unsupported`), and emits an **English `retrieval_query`** for the filings search. The model is given the real company list read from Postgres. |
+| `converse` | Answers a `general` message. Skips retrieval and the grounding gate entirely — there is nothing to fetch and no data claim to check. Given the real company list and coverage summary so it can describe its own scope from the data; forbidden from stating any figure, including one from an earlier answer. |
 | `fetch_data` | Call `query_financials` (Postgres) and/or `search_filings` (Pinecone, filtered per company via `metadata.title`). Source failures are captured as `error`, not raised. |
-| `check_grounding` | **The no-hallucination gate.** Derives coverage from what was *actually returned* per requested company, uniformly across all routes, and names any company that produced nothing in `missing_reason`. Refuses only when nothing at all came back; partial coverage proceeds with the gap disclosed. |
+| `check_grounding` | **The no-hallucination gate.** Derives coverage from what was *actually returned* per requested company, uniformly across all routes, and names any company that produced nothing in `missing_reason`. Also checks the fiscal **years** asked for: rows come back for every year on file, so a company matching never proved the requested year exists — a `sql` question naming only years the table lacks is refused outright. Refuses only when nothing at all came back; partial coverage proceeds with the gap disclosed. |
 | `synthesize` | LLM composes the answer using retrieved SQL rows + filing chunks as the *only* allowed context. If `missing_reason` is set, the answer must state the gap — while still using every figure that *is* available. |
 | `refuse` | LLM writes a short refusal in the question's own language, naming what's missing. A source **outage** is worded as "temporarily unavailable", never as "this data does not exist". |
+
+## Chat vs data questions
+
+`classify` decides `kind` before anything else, and a **general** message —
+a greeting, or a question about the assistant itself or about what was said
+earlier — branches straight to `converse`, never touching retrieval.
+
+Two things make this split worth its own field rather than a fifth route value:
+
+- **Order matters.** `kind` is the first field the model generates, so it is
+  settled before the rewrite runs. Declared after it, *"what did I just ask?"*
+  had already been turned into the previous question by the time the model
+  could notice it was never a data question at all.
+- **`kind` is not a coverage judgment.** Anything factual is `data`, even a
+  share price we plainly do not hold. Whether we can serve it is decided by
+  `route` (`unsupported`) and then by `check_grounding` — folding those two
+  judgments together made the classifier route refusable questions into chat,
+  where they were answered from the model's own knowledge instead of refused.
+
+`converse` sees the transcript (the only node besides `classify` that does), so
+its prompt forbids restating any figure from it. Every number a user is shown
+comes from this turn's retrieval.
 
 ## Routing per baseline question
 
@@ -77,9 +100,10 @@ what the data is.**
 
 ## State
 
-`GraphState` (see `app/agent/state.py`) carries: `question`, `history`,
-`standalone_question`, `companies`, `route`, `retrieval_query`, `sql_results`,
-`vector_results`, `grounded`, `missing_reason`, `error`, `answer`.
+`GraphState` (see `app/agent/state.py`) carries: `question`, `history`, `kind`,
+`standalone_question`, `companies`, `years`, `route`, `retrieval_query`,
+`sql_results`, `vector_results`, `grounded`, `missing_reason`, `error`,
+`answer`.
 
 `error` is deliberately separate from `missing_reason`: an unreachable
 database must never be reported to the user as "this data does not exist",

@@ -36,6 +36,10 @@ def render_sources(meta: dict) -> None:
         # would describe a full refusal as a partial answer.
         return
 
+    if meta.get("route") == "general":
+        # Chat turns consult no source; a "Sources" panel would imply one.
+        return
+
     if meta.get("missing_reason"):
         st.warning(f"Partial coverage — {meta['missing_reason']}", icon="⚠️")
 

@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 from app.agent.prompts import (
     REFUSE_SYSTEM_PROMPT,
     SYNTHESIZE_SYSTEM_PROMPT,
+    converse_system_prompt,
     partial_coverage_note,
     sql_context_header,
     vector_context_header,
@@ -14,7 +15,7 @@ from app.agent.prompts import (
 from app.agent.state import GraphState
 from app.config import settings
 from app.data_access.companies import COMPANY_BY_VECTOR_TITLE
-from app.data_access.sql import query_financials
+from app.data_access.sql import coverage_summary, list_known_companies, query_financials
 from app.data_access.vector import search_filings
 
 _llm = ChatOpenAI(api_key=settings.openai_api_key, model=settings.openai_chat_model, temperature=0)
@@ -106,6 +107,19 @@ def check_grounding(state: GraphState) -> dict:
         if missing:
             notes.append(f"no financial data for: {', '.join(missing)}")
 
+        # A company matching is not the same as the asked-for year being on
+        # file: rows come back for every year we hold, so without this a
+        # question about 2019 would be answered from the 2023-2025 rows.
+        years = state.get("years") or []
+        if years and sql_results:
+            on_file = {row["year"] for row in sql_results}
+            missing_years = [y for y in years if y not in on_file]
+            if missing_years:
+                note = f"no financial data for fiscal year(s): {', '.join(str(y) for y in missing_years)}"
+                if len(missing_years) == len(years) and route == "sql":
+                    return {"grounded": False, "missing_reason": note}
+                notes.append(note)
+
     if route in ("vector", "hybrid"):
         returned = {
             COMPANY_BY_VECTOR_TITLE[chunk["title"]]
@@ -156,6 +170,32 @@ def synthesize_answer(state: GraphState) -> dict:
         ]
     )
     return {"answer": response.content}
+
+
+def converse(state: GraphState) -> dict:
+    """Messages that ask for no company data -- about the assistant, about the
+    conversation, or social.
+
+    `grounded` is True because the reply asserts nothing that could be
+    ungrounded, not because a source backed it. This is the only node besides
+    classify that sees the transcript, so its prompt forbids restating a figure
+    from it -- every number the user is shown comes from a fresh retrieval.
+    """
+    try:
+        coverage = coverage_summary()
+        known_companies = list_known_companies()
+    except Exception:
+        # Describing our own scope is not worth failing a greeting over.
+        coverage, known_companies = None, []
+
+    response = _llm.invoke(
+        [
+            {"role": "system", "content": converse_system_prompt(coverage, known_companies)},
+            *(state.get("history") or []),
+            {"role": "user", "content": state["question"]},
+        ]
+    )
+    return {"answer": response.content, "grounded": True, "missing_reason": None}
 
 
 def refuse_answer(state: GraphState) -> dict:

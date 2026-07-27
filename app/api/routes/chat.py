@@ -64,6 +64,9 @@ def chat(
 
     citations = _citations(state.get("vector_results") or [])
     companies = state.get("companies") or []
+    # A general chat turn consulted no source; reporting its route as
+    # "unsupported" would label a greeting a refusal.
+    route = "general" if state.get("kind") == "general" else state["route"]
 
     # The session row itself is only created once a turn actually succeeds --
     # a failed first message must not leave an empty, title-only session behind.
@@ -75,7 +78,7 @@ def chat(
         session_id,
         "assistant",
         state["answer"],
-        route=state["route"],
+        route=route,
         grounded=state["grounded"],
         missing_reason=state.get("missing_reason"),
         companies=companies,
@@ -85,7 +88,7 @@ def chat(
     return ChatResponse(
         answer=state["answer"],
         session_id=session_id,
-        route=state["route"],
+        route=route,
         grounded=state["grounded"],
         missing_reason=state.get("missing_reason"),
         companies=companies,

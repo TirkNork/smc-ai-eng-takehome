@@ -13,7 +13,7 @@ for how that's enforced as control flow, not a prompt hope.
 
 | Layer | Choice |
 |---|---|
-| Agent | LangGraph — explicit state machine (`classify → fetch_data → check_grounding → synthesize \| refuse`), not an autonomous ReAct loop |
+| Agent | LangGraph — explicit state machine (`classify → fetch_data → check_grounding → synthesize \| refuse`, or `classify → converse` for messages that ask for no data), not an autonomous ReAct loop |
 | Backend | FastAPI |
 | Frontend | Streamlit |
 | Structured data | PostgreSQL |
@@ -174,7 +174,7 @@ either silently omitting Microsoft or inventing a qualitative reason for it.
 
 ```
 app/
-  agent/          LangGraph state machine (classify, fetch_data, check_grounding, synthesize, refuse)
+  agent/          LangGraph state machine (classify, converse, fetch_data, check_grounding, synthesize, refuse)
   api/routes/      FastAPI routes: health, auth, chat, sessions
   auth/            Password hashing + JWT encode/decode (pure, no DB/FastAPI)
   data_access/     One module per table/source: sql.py, vector.py, users.py, chat_history.py, companies.py

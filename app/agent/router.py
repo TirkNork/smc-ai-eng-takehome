@@ -1,16 +1,12 @@
-"""Node: classify the question -- companies mentioned, which source(s) are
-needed, and what to search the filings for.
+"""Node: classify the message -- general chat or a data question, and if the
+latter, which companies, years and source(s) it needs.
 
-LLM-based (structured output), not fixed keywords -- a keyword list can't
-generalize to arbitrary phrasings ("what's driving X's growth" needs vector
-reasoning with no keyword match against any fixed list); sql-vs-vector-vs
--hybrid is a semantic judgment, not a lexical one.
+LLM-based (structured output) rather than keywords: "what's driving X's growth"
+needs the filings and matches no fixed keyword list.
 
-The model is given the real company list from financial_data so it maps a
-mention onto the exact string the SQL table uses -- company names there are
-inconsistently formatted ("AmericanExpress", "BankOfAmerica" have no spaces;
-"Morgan Stanley", "Eli Lilly" do) and a naive extraction would silently fail
-to match any of them.
+The real company list is passed in so a mention maps onto the exact string the
+SQL table uses -- names there are inconsistently formatted ("AmericanExpress"
+has no space, "Morgan Stanley" does) and a naive extraction matches neither.
 """
 from typing import Literal
 
@@ -25,14 +21,15 @@ from app.data_access.sql import list_known_companies
 
 
 class Classification(BaseModel):
-    # Declared first on purpose: structured output is generated field by field
-    # in this order, so the model resolves the follow-up before deciding
-    # companies and route -- and can then read those off a complete question.
+    kind: Literal["general", "data"] = Field(
+        description="Whether the message asks for company data, or is about this assistant / the conversation / merely social"
+    )
     standalone_question: str = Field(
         description="The question rewritten to stand alone, in its original language"
     )
-    companies: list[str] = Field(description="Company names, mapped to the known list where applicable")
-    route: Literal["sql", "vector", "hybrid", "unsupported"]
+    route: Literal["sql", "vector", "hybrid", "unsupported"] = "unsupported"
+    companies: list[str] = Field(default_factory=list, description="Company names, mapped to the known list where applicable")
+    years: list[int] = Field(default_factory=list, description="Fiscal years explicitly asked for")
     retrieval_query: str = Field(default="", description="English query describing what to find in the 10-K filings")
 
 
@@ -43,19 +40,15 @@ _llm = ChatOpenAI(
 
 def classify_question(state: GraphState) -> dict:
     # Captured as `error` rather than raised, matching fetch_data: a database
-    # outage should reach the user as the same honest "temporarily
-    # unavailable" reply wherever it happens, not as an HTTP error from this
-    # node and a graceful message from the next one.
     try:
         known_companies = list_known_companies()
     except Exception as exc:
         return {
+            "kind": "data",
             "route": "unsupported",
             "companies": [],
             "error": f"could not reach the financial database ({type(exc).__name__})",
         }
-
-    system_prompt = classify_system_prompt(known_companies)
 
     # History is passed as real prior turns, so the model resolves a follow-up
     # the way it reads one. It reaches this node only -- downstream nodes see
@@ -63,32 +56,41 @@ def classify_question(state: GraphState) -> dict:
     # become a source of facts for this one.
     result: Classification = _llm.invoke(
         [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": classify_system_prompt(known_companies)},
             *(state.get("history") or []),
             {"role": "user", "content": state["question"]},
         ]
     )
 
-    # Deterministic safety net on top of the LLM's own mapping -- cheap, and
-    # catches the well-known Facebook/Meta, Alphabet/Google renamings even if
-    # the model's output ever slipped.
-    companies = sorted({normalize_company(c) for c in result.companies})
-
-    # Narrowed to the companies this question actually names: with history in
-    # the prompt the classifier keeps returning earlier turns' companies, which
-    # would retrieve their data for a question that never asked about them.
     standalone_question = result.standalone_question.strip() or state["question"]
+
+    if result.kind == "general":
+        return {
+            "kind": "general",
+            "standalone_question": standalone_question,
+            "companies": [],
+            "years": [],
+            "route": "unsupported",
+            "retrieval_query": "",
+        }
+
+    # Deterministic safety net over the LLM's own mapping, then narrowed to the
+    # companies this question actually names -- with history in the prompt the
+    # classifier keeps returning earlier turns' companies, whose data would
+    # otherwise be retrieved for a question that never asked about them.
+    companies = sorted({normalize_company(c) for c in result.companies})
     companies = mentioned_in(companies, standalone_question)
 
-    # "unsupported" with companies present is not a contradiction: it means the
-    # subject matter is outside both sources (e.g. "Apple's share price").
-    # Short-circuiting here avoids a pointless DB read, embedding call and
-    # synthesis for a question no retrieval could ever answer.
-    route = "unsupported" if not companies else result.route
+    # "unsupported" with companies present is not a contradiction: the subject
+    # matter is outside both sources (e.g. "Apple's share price"). Deciding it
+    # here avoids a pointless DB read, embedding call and synthesis.
+    route = result.route if companies else "unsupported"
 
     return {
+        "kind": "data",
         "standalone_question": standalone_question,
         "companies": companies,
+        "years": sorted(set(result.years)),
         "route": route,
         "retrieval_query": result.retrieval_query.strip() or standalone_question,
     }

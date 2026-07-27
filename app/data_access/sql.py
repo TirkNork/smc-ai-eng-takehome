@@ -34,6 +34,22 @@ def query_financials(companies: list[str], years: Optional[list[int]] = None) ->
             return cur.fetchall()
 
 
+def coverage_summary() -> dict:
+    """How many companies and which fiscal years the table actually holds.
+
+    Read rather than hardcoded so the assistant describes its own scope from
+    the data -- a constant in a prompt would quietly go stale the moment the
+    fixture is reloaded with a different range.
+    """
+    with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "select count(distinct company) as companies,"
+                " min(year) as first_year, max(year) as last_year from financial_data"
+            )
+            return cur.fetchone()
+
+
 def list_known_companies() -> list[str]:
     """Every exact `company` string in the table. Company names are
     inconsistently formatted (e.g. "AmericanExpress" and "BankOfAmerica" have
