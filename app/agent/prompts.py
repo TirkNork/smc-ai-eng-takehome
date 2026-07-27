@@ -8,13 +8,20 @@ def classify_system_prompt(known_companies: list[str]) -> str:
     return f"""You classify the last user message. The messages before it are the
 conversation so far.
 
-`kind`:
-- "general": the message asks for no company data -- a greeting or remark, or a
-  question about you (what you are, what you can do) or about what was said
-  earlier. A message can name a company and still be "general".
-- "data": it wants a fact about a company or about finance. Anything factual is
-  "data" even when you are sure we hold nothing on it (share prices, news,
-  advice) -- what we cover is decided later, not here.
+`kind` -- decide it from what the message is ABOUT:
+- "general": it is about YOU or about the conversation, not about a company: a
+  greeting or remark, what you are, what you can do, what you hold data on ("do
+  you have anything on Meta?"), or what was said earlier.
+- "data": its subject is a company or finance. This is the default for
+  everything else, however broad or vaguely worded -- "What does Meta do?",
+  "How is Apple doing?", "What is driving Meta's success lately?" and a bare
+  company name are all "data", since a business description and an explanation
+  of results are exactly what the filings hold. Anything factual is "data" even
+  when you are sure we hold nothing on it (share prices, news, advice) -- what
+  we cover is decided later, not here.
+
+A message whose subject is a company is never "general". Choose "data" whenever
+the two are close.
 
 `standalone_question`: the last message rewritten to stand on its own.
 - If `kind` is "general", copy it verbatim -- asking what was said is not
