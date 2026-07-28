@@ -246,7 +246,8 @@ app/
   agent/          LangGraph state machine (classify, converse, fetch_data, check_grounding, synthesize, refuse)
   api/routes/      FastAPI routes: health, auth, chat, sessions
   auth/            Password hashing + JWT encode/decode (pure, no DB/FastAPI)
-  data_access/     One module per table/source: sql.py, vector.py, users.py, chat_history.py, companies.py
+  data_access/     db.py (connection pool) + one module per table/source:
+                   financial_data.py, vector.py, users.py, chat_history.py, companies.py
   schemas/         Pydantic request/response models
   config.py        Single source of truth for env vars
   main.py          FastAPI app + lifespan
@@ -261,7 +262,8 @@ scripts/
   build_vectors.py     Alternative: build the index from 10k_filings/*.pdf, chunked by SEC section
   judge_indexes.py     Pairwise LLM-as-judge comparison of two indexes
 tests/             66 tests, mostly against the real local stack (no mocks)
-doc/               Design docs: LangGraph flow, DB schema, auth flow, 10-K structure, vector ingestion
+doc/               Design docs: LangGraph flow, DB schema, auth flow, 10-K structure,
+                   vector ingestion, financial-terms glossary
 data/              Provided fixtures (financial_data.sql, pinecone_vectors.jsonl.gz)
 10k_filings/       The four source 10-K PDFs (input to build_vectors.py)
 ```
@@ -290,5 +292,8 @@ Longer write-ups of specific decisions, for anyone extending this:
   cross-references, the contract that makes a rebuilt index a drop-in
   replacement, and an honest account of what the LLM-as-judge comparison did
   and did not establish.
+- [`doc/keyword.md`](doc/keyword.md) — glossary (in Thai) of the income-statement
+  terms in `financial_data`: what each one means, how it is derived, and what it
+  tells you about the business.
 
 
