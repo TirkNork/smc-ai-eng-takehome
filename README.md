@@ -63,19 +63,85 @@ containers are up:
 ```bash
 # Structured financials (~48 companies, FY2022-2025)
 ./scripts/load_sql.sh
+```
 
-# 10-K filing text (Alphabet, Amazon, Apple, Meta) into Pinecone
+For the 10-K filing text there are **two options**. They are interchangeable
+from the app's point of view — pick one, or load both and switch between them
+(see [Switching between indexes](#switching-between-indexes)).
+
+#### Option A — load the provided fixture (fast, no API key)
+
+```bash
 uv sync
 uv run python scripts/load_vectors.py
 
-# The provided fixture contains every chunk twice under different ids --
-# this removes the duplicates from the live index (see scripts/load_vector_note.txt
-# for how that was found).
+# The fixture contains every chunk twice under different ids -- this removes
+# the duplicates from the live index (see scripts/load_vector_note.txt for how
+# that was found).
 uv run python scripts/dedupe_vectors.py
 ```
 
-Re-run `load_vectors.py --clear` (wipes and reloads) any time the `pinecone`
-container is recreated — its index is in-memory only and does not survive a
+Loads `data/pinecone_vectors.jsonl.gz` into `tenk-filings` — pre-embedded
+chunks, cut every ~1000 characters.
+
+#### Option B — build from the source PDFs (section-aware)
+
+```bash
+uv sync --extra ingest
+uv run python scripts/build_vectors.py --dry-run              # inspect, no cost
+uv run python scripts/build_vectors.py --index tenk-filings-v2
+```
+
+Parses `10k_filings/*.pdf` and chunks on the SEC item structure (Item 1, 1A,
+7, ...) instead of by length, so no chunk spans two topics, chunks start and
+end on sentence boundaries, and the print-to-PDF header/footer is stripped.
+`--dry-run` reports the resulting chunk counts per company and per item.
+
+Takes ~2 minutes and about $0.01 of embeddings, and needs `OPENAI_API_KEY`.
+Full write-up: [`doc/vector-ingest.md`](doc/vector-ingest.md).
+
+`uv sync` resolves extras per invocation rather than accumulating them, so
+`--extra ingest` on its own *uninstalls* Streamlit. To keep both:
+
+```bash
+uv sync --extra frontend --extra ingest
+```
+
+> Building into a **separate index name** keeps the fixture index intact to
+> compare against. Use `--clear` when rebuilding into an index you have already
+> populated.
+
+#### Switching between indexes
+
+Nothing in the app is aware of which one is loaded — both satisfy the same
+[contract](doc/vector-ingest.md#the-drop-in-contract). Point `PINECONE_INDEX`
+at whichever you want.
+
+Temporarily, for one command:
+
+```bash
+PINECONE_INDEX=tenk-filings-v2 uv run pytest tests/test_vector.py -q
+```
+
+Permanently — edit `PINECONE_INDEX` in `.env`, then recreate the containers.
+`docker compose restart` is **not** enough: `env_file` is read when a container
+is created, not when it starts.
+
+```bash
+docker compose up -d --force-recreate api frontend
+```
+
+Both indexes live inside the `pinecone` container, so an index built from the
+host is immediately visible to `api` — no rebuild or copy needed.
+
+To compare the two on retrieval quality:
+
+```bash
+uv run python scripts/judge_indexes.py
+```
+
+Re-run whichever loader you chose any time the `pinecone` container is
+recreated — its index is in-memory only and does not survive a
 `docker compose down` or a container recreate, unlike Postgres's `pgdata`
 volume.
 
@@ -99,6 +165,9 @@ curl -s localhost:8000/health
 ```json
 {"status":"ok","checks":{"postgres":"ok (49 companies)","pinecone":"ok (2034 vectors)"}}
 ```
+
+The vector count reflects whichever index `PINECONE_INDEX` points at, so it
+differs between the fixture and a `build_vectors.py` index.
 
 If `pinecone` shows an error after any container recreate, re-run step 4's
 Pinecone commands.
@@ -187,11 +256,14 @@ frontend/
   api_client.py    HTTP client for the backend
 scripts/
   load_sql.sh          Load financial_data.sql into Postgres (idempotent)
-  load_vectors.py      Load 10-K vectors into Pinecone (--clear to wipe+reload)
+  load_vectors.py      Load the provided 10-K vector fixture (--clear to wipe+reload)
   dedupe_vectors.py    Remove the fixture's duplicate vectors
+  build_vectors.py     Alternative: build the index from 10k_filings/*.pdf, chunked by SEC section
+  judge_indexes.py     Pairwise LLM-as-judge comparison of two indexes
 tests/             66 tests, mostly against the real local stack (no mocks)
-doc/               Design docs: LangGraph flow, DB schema, 10-K structure
+doc/               Design docs: LangGraph flow, DB schema, auth flow, 10-K structure, vector ingestion
 data/              Provided fixtures (financial_data.sql, pinecone_vectors.jsonl.gz)
+10k_filings/       The four source 10-K PDFs (input to build_vectors.py)
 ```
 
 ## Design notes
@@ -206,7 +278,17 @@ Longer write-ups of specific decisions, for anyone extending this:
   like Goldman and Morgan Stanley can't answer revenue questions at all) plus
   `users` → `chat_sessions` → `chat_messages`, the app's own auth and chat
   history schema.
+- [`doc/auth-flow.md`](doc/auth-flow.md) — register, login, and the stateless
+  JWT bearer token: what the token carries (and deliberately does not), why
+  ownership is enforced at the data-access layer rather than in the token, and
+  an honest list of what the scheme does not do.
 - [`doc/10k-structure.md`](doc/10k-structure.md) — how the four 10-K filings
   are structured and chunked.
+- [`doc/vector-ingest.md`](doc/vector-ingest.md) — the section-aware ingestion
+  pipeline: what was wrong with fixed-length chunking, how filing sections are
+  detected without being fooled by the table of contents or by
+  cross-references, the contract that makes a rebuilt index a drop-in
+  replacement, and an honest account of what the LLM-as-judge comparison did
+  and did not establish.
 
 

@@ -1,0 +1,28 @@
+%% Source for auth-flow.svg. Re-render after changing the flow:
+%%   npx -y @mermaid-js/mermaid-cli -i doc/img/auth-flow.mmd -o doc/img/auth-flow.svg -b white
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant S as Streamlit<br/>(frontend/auth.py)
+    participant A as FastAPI<br/>(/auth)
+    participant D as Postgres<br/>(users)
+
+    U->>S: username + password
+    S->>A: POST /auth/register (JSON)
+    A->>A: bcrypt hash_password
+    A->>D: INSERT ... ON CONFLICT DO NOTHING
+    D-->>A: row, or none if taken
+    A-->>S: 201 {id, username} / 409
+
+    S->>A: POST /auth/login (form-encoded)
+    A->>D: SELECT password_hash WHERE username
+    A->>A: bcrypt checkpw
+    A-->>S: 200 {access_token} / 401
+    S->>S: st.session_state.token = ...
+
+    Note over S,A: every protected call
+    S->>A: GET /sessions<br/>Authorization: Bearer <token>
+    A->>A: jwt.decode (HS256, allow-list)
+    A->>D: SELECT user WHERE username = sub
+    D-->>A: row, or none if deleted
+    A-->>S: 200 data / 401 / 503
