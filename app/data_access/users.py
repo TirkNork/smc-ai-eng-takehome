@@ -1,15 +1,14 @@
-"""users table access -- same parameterized raw-psycopg style as sql.py.
+"""users table access -- same parameterized raw-psycopg style as financial_data.py.
 
 Returns plain dicts and never raises on "not found" / "already taken": the
 caller decides what those mean, so this layer stays free of HTTP concerns.
 """
-import psycopg
 from psycopg.rows import dict_row
 
-from app.config import settings
+from app.data_access.db import connection, run_ddl
 
-# No migration tool for one table -- POST /auth/register calls ensure_table()
-# itself, so there is nothing to run before the app can create its first user.
+# No migration tool for one table -- main.lifespan calls ensure_table() at
+# startup, so there is nothing to run before the app can create its first user.
 CREATE_TABLE = """
 create table if not exists users (
     id            serial primary key,
@@ -20,13 +19,22 @@ create table if not exists users (
 """
 
 
+_table_ready = False
+
+
 def ensure_table() -> None:
-    with psycopg.connect(settings.database_url) as conn:
-        conn.execute(CREATE_TABLE)
+    """Creates the table on the first successful call and does nothing on
+    every call after it -- see chat_history.ensure_tables for why the result
+    is remembered rather than re-run."""
+    global _table_ready
+    if _table_ready:
+        return
+    run_ddl(CREATE_TABLE)
+    _table_ready = True
 
 
 def get_user(username: str) -> dict | None:
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "select id, username, password_hash from users where username = %s",
@@ -37,7 +45,7 @@ def get_user(username: str) -> dict | None:
 
 def create_user(username: str, password_hash: str) -> dict | None:
     """None when the username is already taken."""
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "insert into users (username, password_hash) values (%s, %s)"
@@ -48,7 +56,7 @@ def create_user(username: str, password_hash: str) -> dict | None:
 
 
 def delete_user(username: str) -> bool:
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor() as cur:
             cur.execute("delete from users where username = %s", (username,))
             return cur.rowcount > 0

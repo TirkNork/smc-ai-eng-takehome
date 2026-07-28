@@ -1,6 +1,6 @@
 """Requires the local Postgres to be up and loaded (docker compose up -d +
 scripts/load_sql.sh) -- these hit the real database, not a mock."""
-from app.data_access.sql import query_financials
+from app.data_access.financial_data import query_financials
 
 
 def test_apple_all_years():

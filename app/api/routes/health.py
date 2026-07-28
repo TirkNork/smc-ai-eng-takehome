@@ -2,7 +2,7 @@
 stack is wired up before trying a question."""
 from fastapi import APIRouter
 
-from app.data_access.sql import list_known_companies
+from app.data_access.financial_data import list_known_companies
 from app.data_access.vector import get_index_stats
 
 router = APIRouter(tags=["health"])

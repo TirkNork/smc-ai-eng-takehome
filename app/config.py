@@ -11,13 +11,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/findb"
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 10
+    db_pool_timeout: float = 5.0
+    db_connect_timeout: int = 5
+    
     pinecone_host: str = "http://localhost:5080"
     pinecone_api_key: str = "pclocal"
     pinecone_index: str = "tenk-filings"
+    
     openai_api_key: str = ""
     openai_chat_model: str = "gpt-4o-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dim: int = 512
+    
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60

@@ -21,8 +21,7 @@ INVALID_CREDENTIALS = HTTPException(
 
 @router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
 def register(credentials: Credentials) -> User:
-    # CREATE TABLE IF NOT EXISTS -- cheap, and this is the only path that needs
-    # the table to already exist, so there is no separate setup script to run.
+    # Normally a no-op
     ensure_table()
     created = create_user(credentials.username, hash_password(credentials.password))
     if created is None:

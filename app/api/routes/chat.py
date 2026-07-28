@@ -35,8 +35,7 @@ def chat(
     user: Annotated[User, Depends(get_current_user)],
     graph=Depends(get_graph),
 ) -> ChatResponse:
-    # CREATE TABLE IF NOT EXISTS x2 -- cheap, same lazy-setup pattern as
-    # /auth/register's ensure_table(). No separate setup script to run.
+    # Normally a no-op: main.lifespan already ran the DDL at startup.
     ensure_tables()
 
     session_id = None

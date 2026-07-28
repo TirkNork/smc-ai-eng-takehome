@@ -6,8 +6,10 @@ Four tables in the same Postgres instance, in two unrelated groups:
   Standalone; nothing else references it.
 - **`users` → `chat_sessions` → `chat_messages`** — created by the app itself
   (`app/data_access/users.py`, `app/data_access/chat_history.py`), no dump or
-  migration tool. `POST /auth/register` and `POST /chat` call `ensure_table(s)()`
-  (`CREATE TABLE IF NOT EXISTS`) lazily on first use.
+  migration tool. `ensure_table(s)()` (`CREATE TABLE IF NOT EXISTS`) runs once
+  at startup from `main.lifespan`; `POST /auth/register` and `POST /chat` still
+  call it as a no-op fallback, for the case where Postgres was unreachable
+  when the API booted.
 
 <img src="img/er-diagram.svg" alt="ER diagram: financial_data standalone; users owns chat_sessions, which contains chat_messages" width="620">
 

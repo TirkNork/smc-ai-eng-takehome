@@ -17,7 +17,7 @@ from app.agent.prompts import classify_system_prompt
 from app.agent.state import GraphState
 from app.config import settings
 from app.data_access.companies import mentioned_in, normalize_company
-from app.data_access.sql import list_known_companies
+from app.data_access.financial_data import list_known_companies
 
 
 class Classification(BaseModel):

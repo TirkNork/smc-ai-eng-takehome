@@ -15,7 +15,7 @@ from app.agent.prompts import (
 from app.agent.state import GraphState
 from app.config import settings
 from app.data_access.companies import COMPANY_BY_VECTOR_TITLE
-from app.data_access.sql import coverage_summary, list_known_companies, query_financials
+from app.data_access.financial_data import coverage_summary, list_known_companies, query_financials
 from app.data_access.vector import search_filings
 
 _llm = ChatOpenAI(api_key=settings.openai_api_key, model=settings.openai_chat_model, temperature=0)

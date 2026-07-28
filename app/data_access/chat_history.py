@@ -1,5 +1,5 @@
 """chat_sessions / chat_messages -- same parameterized raw-psycopg style as
-sql.py and users.py.
+financial_data.py and users.py.
 
 session_id is a plain `text` UUID generated in Python (uuid4), not a Postgres
 `uuid` column -- one fewer type to think about, and there is nothing here that
@@ -11,11 +11,10 @@ another user's conversation by guessing a session_id.
 """
 import uuid
 
-import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from app.config import settings
+from app.data_access.db import connection, run_ddl
 
 CREATE_TABLES = """
 create table if not exists chat_sessions (
@@ -45,9 +44,25 @@ create table if not exists chat_messages (
 TITLE_MAX_LENGTH = 60
 
 
+_tables_ready = False
+
+
 def ensure_tables() -> None:
-    with psycopg.connect(settings.database_url) as conn:
-        conn.execute(CREATE_TABLES)
+    """Creates the tables on the first successful call and does nothing on
+    every call after it.
+
+    main.lifespan calls this at startup, which is where it belongs. But
+    startup deliberately survives an unreachable Postgres, so the result is
+    remembered rather than assumed: if the DDL did not get to run at boot, the
+    next request retries it, and once it has succeeded no request pays for it
+    again. The flag is per-process, so `run_ddl` still has to tolerate two
+    workers racing on the first one.
+    """
+    global _tables_ready
+    if _tables_ready:
+        return
+    run_ddl(CREATE_TABLES)
+    _tables_ready = True
 
 
 def _title_from(question: str) -> str:
@@ -60,7 +75,7 @@ def _title_from(question: str) -> str:
 def create_session(user_id: int, first_question: str) -> str:
     """A new session id (Python-generated uuid4, stringified)."""
     session_id = str(uuid.uuid4())
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         conn.execute(
             "insert into chat_sessions (id, user_id, title) values (%s, %s, %s)",
             (session_id, user_id, _title_from(first_question)),
@@ -71,7 +86,7 @@ def create_session(user_id: int, first_question: str) -> str:
 def get_session(session_id: str, user_id: int) -> dict | None:
     """None when the session does not exist OR belongs to someone else -- the
     caller treats both the same way (404), so they are not distinguished here."""
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "select id, title, created_at, updated_at from chat_sessions"
@@ -83,7 +98,7 @@ def get_session(session_id: str, user_id: int) -> dict | None:
 
 def list_sessions(user_id: int) -> list[dict]:
     """Most recently active first."""
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "select id, title, created_at, updated_at from chat_sessions"
@@ -96,7 +111,7 @@ def list_sessions(user_id: int) -> list[dict]:
 def delete_session(session_id: str, user_id: int) -> bool:
     """False when there was no such session owned by this user. Messages go
     with it via ON DELETE CASCADE -- nothing else references a session."""
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "delete from chat_sessions where id = %s and user_id = %s",
@@ -112,7 +127,7 @@ def get_messages(session_id: str) -> list[dict]:
     session through get_session(), which is where the (session_id, user_id)
     check lives.
     """
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "select role, content, route, grounded, missing_reason,"
@@ -136,7 +151,7 @@ def add_message(
 ) -> None:
     """route/grounded/... are only ever set for role="assistant" -- a user
     message has nothing to ground, so its columns stay null."""
-    with psycopg.connect(settings.database_url) as conn:
+    with connection() as conn:
         conn.execute(
             "insert into chat_messages (session_id, role, content, route,"
             " grounded, missing_reason, companies, citations)"
