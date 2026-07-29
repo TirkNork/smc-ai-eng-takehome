@@ -28,6 +28,7 @@ for how that's enforced as control flow, not a prompt hope.
 
 - Docker + Docker Compose
 - An OpenAI API key
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (for loading fixtures / running tests outside Docker)
 
 ### 2. Configure
 
