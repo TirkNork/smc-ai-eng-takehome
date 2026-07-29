@@ -61,9 +61,18 @@ The database and vector index start **empty** — Postgres has no `financial_dat
 table and Pinecone has no vectors until you load them. Run once after the
 containers are up:
 
+**macOS / Linux:**
+
 ```bash
 # Structured financials (~48 companies, FY2022-2025)
+chmod +x scripts/load_sql.sh   # first time only
 ./scripts/load_sql.sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+./scripts/load_sql.ps1
 ```
 
 For the 10-K filing text there are **two options**. They are interchangeable
@@ -121,7 +130,7 @@ at whichever you want.
 Temporarily, for one command:
 
 ```bash
-PINECONE_INDEX=tenk-filings-v2 uv run pytest tests/test_vector.py -q
+uv run pytest tests/test_vector.py -q
 ```
 
 Permanently — edit `PINECONE_INDEX` in `.env`, then recreate the containers.

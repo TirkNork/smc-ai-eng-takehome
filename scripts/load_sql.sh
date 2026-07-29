@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# chmod +x scripts/load_sql.sh 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
